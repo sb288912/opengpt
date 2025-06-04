@@ -55,10 +55,14 @@ document.addEventListener('DOMContentLoaded', function() {
   let chatHistory = JSON.parse(localStorage.getItem('chat_history') || '{}');
   let chats = JSON.parse(localStorage.getItem('chats') || '{}');
   
-  const room = new WebsimSocket(); // Initialize WebsimSocket
+  // Initialize Supabase client
+  const supabaseUrl = 'https://ocjefgcjjiqykwadvvrd.supabase.co';
+  const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9jamVmZ2NqamlxeWt3YWR2dnJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTE4MzI5OTMsImV4cCI6MjAyNzQwODk5M30.vsreOYwk8pKsr8NFlzpIzWAiD-vXj6ijv_Bhn1vYtHs';
+  const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+  
   let communityGpts = [];
   let activeCustomGpt = null; // To store the currently selected custom GPT config
-  const CUSTOM_GPT_COLLECTION_NAME = 'custom_gpt_v1';
+  const CUSTOM_GPT_TABLE_NAME = 'custom_gpts';
 
   const katexOptions = {
     delimiters: [
@@ -182,16 +186,22 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   async function initializeApp() {
-    await room.initialize();
-    console.log("WebsimSocket initialized.");
+    console.log("Supabase client initialized.");
 
-    room.collection(CUSTOM_GPT_COLLECTION_NAME).subscribe(gpts => {
-        communityGpts = gpts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-        if (gptStoreModal.style.display === 'block') {
-            renderCommunityGpts();
+    // Set up real-time subscription for GPTs
+    supabaseClient
+      .channel('custom_gpts_changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: CUSTOM_GPT_TABLE_NAME },
+        (payload) => {
+          console.log('Change received!', payload);
+          loadCommunityGpts(); // Reload GPTs when changes occur
         }
-    });
-    communityGpts = room.collection(CUSTOM_GPT_COLLECTION_NAME).getList().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      )
+      .subscribe();
+
+    // Load initial GPTs
+    await loadCommunityGpts();
     
     initializeChat();
     await loadModels(); // Ensure models are loaded before populating GPT creator model selector
@@ -240,7 +250,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const item = document.createElement('div');
       item.className = 'gpt-list-item';
       item.innerHTML = `
-        <img src="${gpt.logoUrl || 'ai-logo.png'}" alt="${gpt.name} logo">
+        <img src="${gpt.logo_url || 'ai-logo.png'}" alt="${gpt.name} logo">
         <div class="gpt-item-info">
           <h4>${escapeHtml(gpt.name)}</h4>
           <p>${escapeHtml(gpt.description.substring(0, 100))}${gpt.description.length > 100 ? '...' : ''}</p>
@@ -362,8 +372,23 @@ document.addEventListener('DOMContentLoaded', function() {
     gptFormStatus.className = 'form-status';
 
     try {
-      const newGptData = { name, description, systemPrompt, modelId, logoUrl };
-      await room.collection(CUSTOM_GPT_COLLECTION_NAME).create(newGptData);
+      const newGptData = { 
+        name, 
+        description, 
+        system_prompt: systemPrompt, 
+        model_id: modelId, 
+        logo_url: logoUrl,
+        username: 'Anonymous User' // Default username since we don't have user auth
+      };
+      
+      const { data, error } = await supabaseClient
+        .from(CUSTOM_GPT_TABLE_NAME)
+        .insert([newGptData])
+        .select();
+
+      if (error) {
+        throw new Error(error.message);
+      }
       
       gptFormStatus.textContent = 'GPT saved successfully!';
       gptFormStatus.className = 'form-status success';
@@ -393,6 +418,29 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
+  // --- Supabase GPT Functions ---
+  async function loadCommunityGpts() {
+    try {
+      const { data, error } = await supabaseClient
+        .from(CUSTOM_GPT_TABLE_NAME)
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error loading community GPTs:', error);
+        communityGpts = [];
+      } else {
+        communityGpts = data || [];
+        if (gptStoreModal.style.display === 'block') {
+          renderCommunityGpts();
+        }
+      }
+    } catch (error) {
+      console.error('Error loading community GPTs:', error);
+      communityGpts = [];
+    }
+  }
+
   // --- End GPT Store/Create Functions ---
 
   async function loadModels() {
@@ -418,7 +466,7 @@ document.addEventListener('DOMContentLoaded', function() {
           }
         });
         
-        const currentSelectedModelId = activeCustomGpt ? activeCustomGpt.modelId : selectedModel;
+        const currentSelectedModelId = activeCustomGpt ? activeCustomGpt.model_id : selectedModel;
         const selectedOptionExists = Array.from(modelSelector.options).some(opt => opt.value === currentSelectedModelId);
 
         if (selectedOptionExists) {
@@ -482,8 +530,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (activeCustomGpt) {
         initialTitle = `Chat with ${activeCustomGpt.name}`;
         initialWelcomeMessage = `Hello! I'm ${activeCustomGpt.name}. ${activeCustomGpt.description}. How can I help you?`;
-        selectedModel = activeCustomGpt.modelId; // Set model for this chat
-        modelSelector.value = activeCustomGpt.modelId;
+        selectedModel = activeCustomGpt.model_id; // Set model for this chat
+        modelSelector.value = activeCustomGpt.model_id;
     } else {
         // Reset to default model if no custom GPT is active, or ensure it matches main selector
         selectedModel = modelSelector.value || 'claude-3-5-sonnet-latest';
@@ -549,9 +597,9 @@ document.addEventListener('DOMContentLoaded', function() {
   
   function updateChatUIForCustomGpt() {
     if (activeCustomGpt) {
-        headerAiAvatar.src = activeCustomGpt.logoUrl || 'ai-logo.png';
+        headerAiAvatar.src = activeCustomGpt.logo_url || 'ai-logo.png';
         customGptIndicator.textContent = `Using: ${activeCustomGpt.name}`;
-        modelSelector.value = activeCustomGpt.modelId;
+        modelSelector.value = activeCustomGpt.model_id;
         modelSelector.disabled = true; // Disable model selector when custom GPT active
         userInput.placeholder = `Message ${activeCustomGpt.name}...`;
     } else {
