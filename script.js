@@ -55,6 +55,9 @@ document.addEventListener('DOMContentLoaded', function() {
   let chatHistory = JSON.parse(localStorage.getItem('chat_history') || '{}');
   let chats = JSON.parse(localStorage.getItem('chats') || '{}');
   
+  // Track image generation count for Pollinations API seed
+  let imageGenerationCount = parseInt(localStorage.getItem('image_generation_count') || '0');
+  
   // Initialize Supabase client
   const supabaseUrl = 'https://ocjefgcjjiqykwadvvrd.supabase.co';
   const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9jamVmZ2NqamlxeWt3YWR2dnJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTE4MzI5OTMsImV4cCI6MjAyNzQwODk5M30.vsreOYwk8pKsr8NFlzpIzWAiD-vXj6ijv_Bhn1vYtHs';
@@ -301,13 +304,50 @@ document.addEventListener('DOMContentLoaded', function() {
     buttonElement.textContent = 'Improving...';
     gptFormStatus.textContent = `Improving ${fieldType}...`;
     try {
-      const completion = await websim.chat.completions.create({
-        messages: [
-          { role: "system", content: `You are an AI assistant that helps refine content for custom GPTs. Given the text and its context (${fieldType}), improve it to be more effective, clear, and engaging. Respond directly with only the improved text, without any surrounding quotes or explanations.` },
-          { role: "user", content: `Context: ${fieldType}\nText to improve: ${originalText}` }
-        ]
+      const messages = [
+        { role: "system", content: `You are an AI assistant that helps refine content for custom GPTs. Given the text and its context (${fieldType}), improve it to be more effective, clear, and engaging. Respond directly with only the improved text, without any surrounding quotes or explanations.` },
+        { role: "user", content: `Context: ${fieldType}\nText to improve: ${originalText}` }
+      ];
+      
+      const response = await fetch('https://api.puter.com/drivers/call', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0IjoicyIsInYiOiIwLjAuMCIsInUiOiJFVDgwN2tCeFRyT0FUWEZGQmlUVmp3PT0iLCJ1dSI6IkZMQlJKOER5U3JlOHJkRVBNM0FKYXc9PSIsImlhdCI6MTc0ODQ2Mjc5Nn0.tGPf1xJDJIr9rL4K_YG5bLu7613zLl2MJJ_Obqwif2k`,
+          'Accept': '*/*',
+          'Origin': 'https://docs.puter.com',
+          'Referer': 'https://docs.puter.com/'
+        },
+        body: JSON.stringify({
+          "interface": "puter-chat-completion",
+          "driver": "openrouter",
+          "test_mode": false,
+          "method": "complete",
+          "args": {
+            "messages": messages,
+            "model": selectedModel,
+            "stream": false
+          }
+        })
       });
-      inputElement.value = completion.content.trim();
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      let improvedText = '';
+      
+      if (data && data.result && data.result.message && typeof data.result.message.content === 'string') {
+        improvedText = data.result.message.content;
+      } else if (data && data.result && data.result.message && Array.isArray(data.result.message.content)) {
+        const textPart = data.result.message.content.find(part => part.type === 'text');
+        improvedText = textPart ? textPart.text : '';
+      } else {
+        throw new Error('Invalid API response format');
+      }
+      
+      inputElement.value = improvedText.trim();
       gptFormStatus.textContent = `${fieldType.charAt(0).toUpperCase() + fieldType.slice(1)} improved!`;
     } catch (error) {
       console.error(`Error improving ${fieldType}:`, error);
@@ -335,21 +375,38 @@ document.addEventListener('DOMContentLoaded', function() {
     const prompt = `A modern, abstract, digital icon-style logo for a GPT (AI assistant). GPT Name: "${name}". GPT Description: "${description}". Focus on a clean, visually appealing design suitable for a small icon.`;
 
     try {
-      const result = await websim.imageGen({ prompt: prompt, aspect_ratio: "1:1", transparent: true });
-      gptLogoPreview.src = result.url;
-      gptLogoUrlInput.value = result.url;
-      gptFormStatus.textContent = 'Logo generated!';
-      gptFormStatus.className = 'form-status success';
+      // Increment image generation count for seed
+      imageGenerationCount++;
+      localStorage.setItem('image_generation_count', imageGenerationCount.toString());
+      
+      // Encode prompt for URL
+      const encodedPrompt = encodeURIComponent(prompt);
+      const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?model=gptimage&seed=${imageGenerationCount}`;
+      
+      // Test if the image loads successfully
+      const img = new Image();
+      img.onload = function() {
+        gptLogoPreview.src = imageUrl;
+        gptLogoUrlInput.value = imageUrl;
+        gptFormStatus.textContent = 'Logo generated!';
+        gptFormStatus.className = 'form-status success';
+        setTimeout(() => { gptFormStatus.textContent = ''; gptFormStatus.className = 'form-status';}, 3000);
+      };
+      img.onerror = function() {
+        throw new Error('Failed to load generated image');
+      };
+      img.src = imageUrl;
+      
     } catch (error) {
       console.error('Error generating logo:', error);
       gptFormStatus.textContent = `Error generating logo: ${error.message}`;
       gptFormStatus.className = 'form-status error';
       gptLogoPreview.src = 'ai-logo.png'; // Fallback to default
       gptLogoUrlInput.value = 'ai-logo.png';
+      setTimeout(() => { gptFormStatus.textContent = ''; gptFormStatus.className = 'form-status';}, 3000);
     } finally {
       generateGptLogoButton.disabled = false;
       generateGptLogoButton.textContent = 'Generate Logo';
-      setTimeout(() => { gptFormStatus.textContent = ''; gptFormStatus.className = 'form-status';}, 3000);
     }
   }
 
@@ -850,11 +907,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // Display local preview immediately for user message
         localImagePreviewUrl = URL.createObjectURL(imageFile); 
         try {
-          imageUrl = await websim.upload(imageFile);
+          // Convert image to data URL instead of uploading to external service
+          imageUrl = await convertImageToDataURL(imageFile);
         } catch (error) {
-          console.error('Error uploading image:', error);
-          appendMessage('assistant', "Error uploading image: " + error.message);
-          // Clean up and re-enable inputs if image upload fails critically
+          console.error('Error processing image:', error);
+          appendMessage('assistant', "Error processing image: " + error.message);
+          // Clean up and re-enable inputs if image processing fails critically
           userInput.disabled = false;
           sendButton.disabled = false;
           userInput.focus();
@@ -1035,6 +1093,19 @@ document.addEventListener('DOMContentLoaded', function() {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+  
+  function convertImageToDataURL(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        resolve(event.target.result);
+      };
+      reader.onerror = function(error) {
+        reject(new Error('Failed to read image file'));
+      };
+      reader.readAsDataURL(file);
+    });
   }
   
   window.copyToClipboard = function(button) {
