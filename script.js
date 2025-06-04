@@ -3,7 +3,7 @@ document.addEventListener('DOMContentLoaded', function() {
   let bearerToken = localStorage.getItem('claude_bearer_token');
   let currentChatId = null;
   let imageFile = null;
-  let selectedModel = 'claude-3-5-sonnet-latest';
+  let selectedModel = 'anthropic/claude-3-5-sonnet-latest';
   
   // DOM elements
   const chatContainer = document.getElementById('chatContainer');
