@@ -1,6 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() {
   // Existing variables
-  let bearerToken = localStorage.getItem('claude_bearer_token');
   let currentChatId = null;
   let imageFile = null;
   let selectedModel = 'anthropic/claude-3-5-sonnet-latest';
@@ -11,7 +10,6 @@ document.addEventListener('DOMContentLoaded', function() {
   const sendButton = document.getElementById('sendButton');
   const statusInfo = document.getElementById('statusInfo');
   const newChatButton = document.getElementById('newChatButton');
-  const newAccountButton = document.getElementById('newAccountButton');
   const imageUpload = document.getElementById('imageUpload');
   const imagePreviewContainer = document.getElementById('imagePreviewContainer');
   const chatHistoryList = document.getElementById('chatHistoryList');
@@ -131,9 +129,6 @@ document.addEventListener('DOMContentLoaded', function() {
     createNewChat();
   });
   
-  newAccountButton.addEventListener('click', function() {
-    makeRequest().catch(err => console.error("Manual account creation failed:", err));
-  });
   
   imageUpload.addEventListener('change', handleImageUpload);
   
@@ -210,7 +205,6 @@ document.addEventListener('DOMContentLoaded', function() {
     await loadModels(); // Ensure models are loaded before populating GPT creator model selector
     populateGptModelSelector(); // Populate the model selector in the GPT creation form
 
-    newAccountButton.style.display = 'none';
     
     const savedModel = localStorage.getItem('selected_model');
     if (savedModel) selectedModel = savedModel;
@@ -222,12 +216,8 @@ document.addEventListener('DOMContentLoaded', function() {
       reasoningModeToggle.textContent = 'ON';
     }
 
-    if (!bearerToken) {
-      makeRequest().catch(err => console.error("Initial account creation failed:", err));
-    } else {
-      statusInfo.innerHTML = '<p>Using existing account. Chat is ready.</p>';
-      checkUsage();
-    }
+    // App is ready to use without requiring account creation
+    statusInfo.innerHTML = '<p>Chat is ready to use!</p>';
   }
   
   initializeApp();
@@ -763,123 +753,7 @@ document.addEventListener('DOMContentLoaded', function() {
     localStorage.setItem('chats', JSON.stringify(chats));
   }
 
-  async function makeRequest() {
-    // Reset status and hide "Create New Account" button while we try
-    statusInfo.innerHTML = '<p>Creating temporary account...</p>';
-    newAccountButton.style.display = 'none';
 
-    const payload = {
-      referrer: "/",
-      is_temp: true
-    };
-
-    try {
-      const response = await fetch('https://puter.com/signup', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': '*/*',
-          'Origin': 'https://puter.com',
-          'Referer': 'https://puter.com/'
-        },
-        body: JSON.stringify(payload)
-      });
-      const data = await response.json();
-      if (data && data.token) {
-        bearerToken = data.token;
-        localStorage.setItem('claude_bearer_token', bearerToken);
-        statusInfo.innerHTML = '<p>Account created successfully! Chat is ready.</p>';
-        newAccountButton.style.display = 'none';
-        await checkUsage(); // Check usage and update UI
-      } else {
-        statusInfo.innerHTML = '<p>Error creating account. Please try again.</p>';
-        newAccountButton.style.display = 'block';
-        throw new Error('Error creating account: No token received');
-      }
-    } catch (error) {
-      console.error('Request error:', error);
-      statusInfo.innerHTML = `<p>Error creating account. Please try again or reload the page.</p>`;
-      newAccountButton.style.display = 'block';
-      throw error;
-    }
-  }
-
-  async function checkUsage() {
-    if (!bearerToken) {
-        // No UI element to update for usage text, statusInfo can be used if needed.
-        console.warn('No account available for usage check.');
-        newAccountButton.style.display = 'none'; // Hide if no token
-        return;
-    }
-    try {
-      const response = await fetch('https://api.puter.com/drivers/usage', {
-        method: 'GET',
-        headers: {
-          'Accept': '*/*',
-          'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0IjoicyIsInYiOiIwLjAuMCIsInUiOiJFVDgwN2tCeFRyT0FUWEZGQmlUVmp3PT0iLCJ1dSI6IkZMQlJKOER5U3JlOHJkRVBNM0FKYXc9PSIsImlhdCI6MTc0ODQ2Mjc5Nn0.tGPf1xJDJIr9rL4K_YG5bLu7613zLl2MJJ_Obqwif2k`,
-          'Origin': 'https://puter.com',
-          'Referer': 'https://puter.com/'
-        }
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Usage check HTTP error:', response.status, errorText);
-        newAccountButton.style.display = 'none'; // Default to hidden on error
-        // No UI element for usageText to update. statusInfo could be used for critical errors.
-        if (response.status === 401 || response.status === 403) {
-            statusInfo.innerHTML = '<p>Authentication error. Attempting to create new temporary account...</p>';
-            newAccountButton.style.display = 'block'; // Show button if auth error, user might need to create new
-            await makeRequest();
-        } else {
-            statusInfo.innerHTML = `<p>Error checking account status: ${response.status}.</p>`;
-        }
-        return;
-      }
-      
-      const data = await response.json();
-      if (data && data.usages && data.usages.length > 0) {
-        const creditUsage = data.usages.find(usage => usage.id === 'prod-credit');
-        if (creditUsage) {
-          let usedPercentage;
-          if (creditUsage.available > 0) {
-              usedPercentage = (creditUsage.used / creditUsage.available) * 100;
-          } else {
-              usedPercentage = (creditUsage.used > 0) ? 100 : 0; // If available is 0, and used is >0, it's 100%
-          }
-          
-          // Show/hide "Create New Account" button based on usage
-          if (usedPercentage >= 95) {
-            newAccountButton.style.display = 'block';
-          } else {
-            newAccountButton.style.display = 'none';
-          }
-
-          if (usedPercentage >= 100) {
-            statusInfo.innerHTML = '<p>Quota usage exceeded. Creating a new temporary account...</p>';
-            newAccountButton.style.display = 'block'; // Ensure it's visible if making new request
-            await makeRequest(); 
-          } else {
-            // Optionally update statusInfo if quota is low, but not with a percentage bar.
-            // For now, keeping statusInfo updates minimal to reflect the "hide usage panel" request.
-            // statusInfo.innerHTML = `<p>Account status OK. Usage: ${usedPercentage.toFixed(1)}%</p>` // Example if some feedback is desired
-          }
-        } else {
-            // No UI element for usageText to update.
-            console.warn('Credit usage data not found in API response.');
-            newAccountButton.style.display = 'none'; // Default to hidden
-        }
-      } else {
-          // No UI element for usageText to update.
-          console.warn('No usage data received from API.');
-          newAccountButton.style.display = 'none'; // Default to hidden
-      }
-    } catch (error) {
-      console.error('Usage check error:', error);
-      statusInfo.innerHTML = '<p>Could not retrieve account status.</p>';
-      newAccountButton.style.display = 'none'; // Default to hidden on error
-    }
-  }
   
   async function sendMessage() {
     const message = userInput.value.trim();
@@ -890,15 +764,6 @@ document.addEventListener('DOMContentLoaded', function() {
     let typingIndicator; // Declare here to be accessible in catch/finally
     
     try {
-      await checkUsage(); // Check usage and renew token if necessary. bearerToken might change.
-
-      if (!bearerToken) { // If token is still missing after checkUsage (e.g., makeRequest failed)
-          statusInfo.innerHTML = '<p>Account not available. Please try creating one manually or reload.</p>';
-          userInput.disabled = false;
-          sendButton.disabled = false;
-          userInput.focus();
-          return;
-      }
       
       let imageUrl = null;
       let localImagePreviewUrl = null; // For displaying image before upload for user message
