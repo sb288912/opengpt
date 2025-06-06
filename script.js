@@ -691,7 +691,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = htmlTextContent;
-        if (msg.role === 'assistant' && rawContent && window.renderMathInElement) renderMathInElement(tempDiv, katexOptions);
+        if (msg.role === 'assistant' && rawContent) {
+            finalizeAssistantMessageDOM(tempDiv);
+        }
         messageContentDiv.innerHTML = tempDiv.innerHTML + `<img src="${msg.imageUrl}" class="message-image">`;
       } else if (msg.role === 'assistant') {
         if (msg.type === 'reasoning_session') {
@@ -931,8 +933,8 @@ document.addEventListener('DOMContentLoaded', function() {
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = htmlTextContent;
 
-      if (sender === 'assistant' && rawContent && window.renderMathInElement) {
-          renderMathInElement(tempDiv, katexOptions);
+      if (sender === 'assistant' && rawContent) {
+          finalizeAssistantMessageDOM(tempDiv);
       }
       messageContentDiv.innerHTML = tempDiv.innerHTML + `<img src="${imageUrl}" class="message-image">`;
 
@@ -1268,6 +1270,15 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   function finalizeAssistantMessageDOM(assistantContentDiv) {
+      // Apply syntax highlighting to code blocks
+      if (window.hljs) {
+          const codeBlocks = assistantContentDiv.querySelectorAll('pre code');
+          codeBlocks.forEach(block => {
+              hljs.highlightElement(block);
+          });
+      }
+      
+      // Apply math rendering
       if (window.renderMathInElement) {
           renderMathInElement(assistantContentDiv, katexOptions);
       }
