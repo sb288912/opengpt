@@ -1,0 +1,6 @@
+# Security Policy  
+It is mandatory for all new users and contributors to carefully and thoroughly read this security policy before participating or contributing to the repository in any capacity. Taking the time to fully understand these security guidelines is essential, as it guarantees that everyone involved has a clear and consistent understanding of the practices and measures in place to safeguard the project. This shared knowledge is critical for maintaining a secure and collaborative environment for all members.
+
+## Reporting a Vulnerability  
+In the event that you identify a security vulnerability within the repository, it is crucial that you report it exclusively through the designated discussions tab. Under no circumstances should vulnerabilities be reported via issues or pull requests. This restriction is deliberately enforced as a protective measure to shield the repository from potential exploitation by malicious hackers and cybercriminals who might take advantage of vulnerabilities that become publicly visible. Adhering strictly to this reporting procedure plays a vital role in preserving the overall security and integrity of the project, ensuring that any risks are managed responsibly and effectively.  
+**Updated: 21/06/2025**
